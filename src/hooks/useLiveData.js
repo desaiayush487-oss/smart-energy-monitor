@@ -6,6 +6,7 @@ export function useLiveData() {
   const [isRecording, setIsRecording] = useState(true);
   const [history, setHistory] = useState([]);
   const [isOnline, setIsOnline] = useState(false);
+  const [simulationOverride, setSimulationOverride] = useState(null);
   
   const [rawLiveData, setRawLiveData] = useState({
     voltage: 0,
@@ -16,8 +17,33 @@ export function useLiveData() {
     timestamp: Date.now()
   });
 
+  // Function to simulate a live overload spike for demos
+  const simulateOverload = () => {
+    const fakeData = {
+      voltage: 232.4,
+      current: 1.23,
+      power: 285.4, // Breaches the 250W cutoff threshold!
+      energy: rawLiveData.energy + 0.05,
+      powerFactor: 0.91,
+      timestamp: Date.now()
+    };
+    setSimulationOverride(fakeData);
+    setIsOnline(true);
+    
+    if (isRecording) {
+      setHistory((prev) => [...prev, fakeData]);
+    }
+
+    // Reset simulation override back to normal live feed after 12 seconds
+    setTimeout(() => {
+      setSimulationOverride(null);
+    }, 12000);
+  };
+
   useEffect(() => {
-    // Updated path to match Firebase structure: pzem/live
+    // Skip Firebase updates while simulation override is active
+    if (simulationOverride) return;
+
     const telemetryRef = ref(database, "pzem/live");
     let timeoutId;
 
@@ -52,10 +78,10 @@ export function useLiveData() {
       unsubscribe();
       clearTimeout(timeoutId);
     };
-  }, [isRecording]);
+  }, [isRecording, simulationOverride]);
 
-  // When offline, active telemetry zeroes out while total energy remains accumulated
-  const activeLiveData = isOnline
+  // Use simulation override if active, otherwise fall back to online/offline state
+  const activeLiveData = simulationOverride || (isOnline
     ? rawLiveData
     : {
         voltage: 0,
@@ -64,7 +90,7 @@ export function useLiveData() {
         energy: rawLiveData.energy,
         powerFactor: 0,
         status: "OFFLINE"
-      };
+      });
 
   const exportCSV = () => {
     if (history.length === 0) return;
@@ -88,6 +114,7 @@ export function useLiveData() {
     history,
     exportCSV,
     isRecording,
-    setIsRecording
+    setIsRecording,
+    simulateOverload
   };
 }
